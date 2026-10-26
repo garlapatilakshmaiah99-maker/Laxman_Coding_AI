@@ -205,7 +205,7 @@ async function readSelectedProjectFile() {
 
     if (!window.laxmanAI) {
       setError(
-        'The Electron bridge is unavailable. Restart Laxman Coding AI.'
+        'Browser version is not connected to an AI service yet. The desktop version uses your local Ollama model.'
       );
       return;
     }
