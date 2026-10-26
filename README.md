@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## How to Start Laxman Coding AI (Windows)
 
 ### Project Location
@@ -83,3 +84,6 @@ If this command fails, check whether Ollama is running before trying `ollama ser
 - Keep Ollama running while using the desktop application.
 - Use `Ctrl + C` in the relevant terminal to stop a development process when finished.
 - `npm run electron:dev` is for development, not the packaged production application.
+=======
+# Laxman_Coding_AI
+>>>>>>> origin/main
