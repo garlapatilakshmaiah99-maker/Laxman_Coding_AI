@@ -1,5 +1,4 @@
-﻿
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -62,17 +61,22 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState({ connected: false, models: [] });
   const [error, setError] = useState('');
   const [model, setModel] = useState(MODEL);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => window.matchMedia('(min-width: 651px)').matches
+  );
+
   const [search, setSearch] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
-const [projectFilePath, setProjectFilePath] = useState('');
-const [projectFileContent, setProjectFileContent] = useState('');
-const [projectLoading, setProjectLoading] = useState(false);
-const [projectError, setProjectError] = useState('');
+  const [projectFilePath, setProjectFilePath] = useState('');
+  const [projectFileContent, setProjectFileContent] = useState('');
+  const [projectLoading, setProjectLoading] = useState(false);
+  const [projectError, setProjectError] = useState('');
 
   const [provider, setProvider] = useState('openai');
   const [providerStatus, setProviderStatus] = useState({
@@ -90,57 +94,57 @@ const [projectError, setProjectError] = useState('');
   const textareaRef = useRef(null);
   const bottomRef = useRef(null);
 
-async function chooseProjectFolder() {
-  setProjectError('');
-  setProjectFileContent('');
-
-  try {
-    if (!window.laxmanAI?.selectProjectFolder) {
-      throw new Error('Project access is unavailable. Restart the app.');
-    }
-
-    const result = await window.laxmanAI.selectProjectFolder();
-
-    if (result.canceled) return;
-
-    setSelectedProject(result);
-    setProjectFilePath('');
+  async function chooseProjectFolder() {
+    setProjectError('');
     setProjectFileContent('');
-  } catch (err) {
-    setProjectError(err?.message || 'Could not select project folder.');
+
+    try {
+      if (!window.laxmanAI?.selectProjectFolder) {
+        throw new Error('Project access is unavailable. Restart the app.');
+      }
+
+      const result = await window.laxmanAI.selectProjectFolder();
+
+      if (result.canceled) return;
+
+      setSelectedProject(result);
+      setProjectFilePath('');
+      setProjectFileContent('');
+    } catch (err) {
+      setProjectError(err?.message || 'Could not select project folder.');
+    }
   }
-}
 
-async function readSelectedProjectFile() {
-  const relativePath = projectFilePath.trim();
+  async function readSelectedProjectFile() {
+    const relativePath = projectFilePath.trim();
 
-  if (!selectedProject) {
-    setProjectError('Select a project folder first.');
-    return;
-  }
-
-  if (!relativePath) {
-    setProjectError('Enter a relative file path, such as src/App.jsx.');
-    return;
-  }
-
-  setProjectLoading(true);
-  setProjectError('');
-  setProjectFileContent('');
-
-  try {
-    if (!window.laxmanAI?.readProjectFile) {
-      throw new Error('File reading is unavailable. Restart the app.');
+    if (!selectedProject) {
+      setProjectError('Select a project folder first.');
+      return;
     }
 
-    const result = await window.laxmanAI.readProjectFile(relativePath);
-    setProjectFileContent(result.content);
-  } catch (err) {
-    setProjectError(err?.message || 'Could not read project file.');
-  } finally {
-    setProjectLoading(false);
+    if (!relativePath) {
+      setProjectError('Enter a relative file path, such as src/App.jsx.');
+      return;
+    }
+
+    setProjectLoading(true);
+    setProjectError('');
+    setProjectFileContent('');
+
+    try {
+      if (!window.laxmanAI?.readProjectFile) {
+        throw new Error('File reading is unavailable. Restart the app.');
+      }
+
+      const result = await window.laxmanAI.readProjectFile(relativePath);
+      setProjectFileContent(result.content);
+    } catch (err) {
+      setProjectError(err?.message || 'Could not read project file.');
+    } finally {
+      setProjectLoading(false);
+    }
   }
-}
 
   async function refreshLocalStatus() {
     if (!window.laxmanAI?.getStatus) return;
@@ -179,6 +183,25 @@ async function readSelectedProjectFile() {
     textareaRef.current?.focus();
   }, [mode]);
 
+  function closeSidebarOnMobile() {
+    if (window.matchMedia('(max-width: 650px)').matches) {
+      setSidebarOpen(false);
+    }
+  }
+
+  useEffect(() => {
+    function handleResize() {
+      if (window.matchMedia('(min-width: 651px)').matches) {
+        setSidebarOpen(true);
+      } else {
+        setSidebarOpen(false);
+      }
+    }
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const filteredHistory = useMemo(
     () =>
       history.filter((item) =>
@@ -191,6 +214,7 @@ async function readSelectedProjectFile() {
     setMessages([]);
     setError('');
     setDraft('');
+    closeSidebarOnMobile();
   }
 
   async function sendMessage(text = draft) {
@@ -203,19 +227,30 @@ async function readSelectedProjectFile() {
       return;
     }
 
-    if (!window.laxmanAI) {
+    const isDesktop = Boolean(window.laxmanAI);
+
+    if (
+      mode === 'offline' &&
+      isDesktop &&
+      typeof window.laxmanAI.chat !== 'function'
+    ) {
       setError(
-        'Browser version is not connected to an AI service yet. The desktop version uses your local Ollama model.'
+        'The local Ollama connection is not available. Check that Ollama is running.'
       );
       return;
     }
 
-    if (mode === 'offline' && !window.laxmanAI.chat) {
-      setError('The local Ollama connection is not available.');
+    if (mode === 'online' && !isDesktop) {
+      setError(
+        'Online Mode is available in the desktop app. On this website, choose Offline Mode to run the browser AI model.'
+      );
       return;
     }
 
-    if (mode === 'online' && !window.laxmanAI.onlineChat) {
+    if (
+      mode === 'online' &&
+      typeof window.laxmanAI.onlineChat !== 'function'
+    ) {
       setError(
         'Online chat is not available. Restart the desktop application.'
       );
@@ -232,13 +267,20 @@ async function readSelectedProjectFile() {
 
     const next = [
       ...messages,
-      { role: 'user', content, id: crypto.randomUUID() },
+      {
+        role: 'user',
+        content,
+        id: crypto.randomUUID(),
+      },
     ];
 
     setMessages(next);
     setDraft('');
     setError('');
     setLoading(true);
+    setStreaming(false);
+
+    let streamingMessageId = null;
 
     try {
       const conversation = next.map(({ role, content: body }) => ({
@@ -249,10 +291,56 @@ async function readSelectedProjectFile() {
       let result;
 
       if (mode === 'offline') {
-        result = await window.laxmanAI.chat({
-          messages: conversation,
-          model,
-        });
+        if (window.laxmanAI?.chat) {
+          result = await window.laxmanAI.chat({
+            messages: conversation,
+            model,
+          });
+        } else {
+          const {
+            loadBrowserAI,
+            sendBrowserMessageStream,
+          } = await import('./services/browserAI');
+
+          await loadBrowserAI((progress) => {
+            const percent = Math.round(
+              (progress?.progress ?? 0) * 100
+            );
+
+            setError(
+              percent < 100
+                ? `Downloading browser AI model: ${percent}%. Keep this tab open and connected to the internet.`
+                : ''
+            );
+          });
+
+          let streamedContent = '';
+
+          streamingMessageId = crypto.randomUUID();
+
+          const browserReply = await sendBrowserMessageStream(
+            conversation,
+            (chunk) => {
+              streamedContent += chunk;
+              setStreaming(true);
+
+              setMessages([
+                ...next,
+                {
+                  role: 'assistant',
+                  content: streamedContent,
+                  id: streamingMessageId,
+                  provider: 'webllm',
+                },
+              ]);
+            }
+          );
+
+          result = {
+            content: browserReply,
+            provider: 'webllm',
+          };
+        }
       } else {
         result = await window.laxmanAI.onlineChat({
           provider,
@@ -263,8 +351,10 @@ async function readSelectedProjectFile() {
       const answer = {
         role: 'assistant',
         content: result.content,
-        id: crypto.randomUUID(),
-        provider: result.provider || (mode === 'offline' ? 'ollama' : provider),
+        id: streamingMessageId || crypto.randomUUID(),
+        provider:
+          result.provider ||
+          (mode === 'offline' ? 'ollama' : provider),
       };
 
       const completeConversation = [...next, answer];
@@ -280,13 +370,16 @@ async function readSelectedProjectFile() {
         ...current.filter((item) => item.id !== next[0].id),
       ]);
     } catch (err) {
-      setError(err?.message || 'The AI request failed. Please try again.');
+      setError(
+        err?.message ||
+        'The AI request failed. Please check browser compatibility and try again.'
+      );
     } finally {
       setLoading(false);
+      setStreaming(false);
     }
   }
-
-  async function saveKey() {
+    async function saveKey() {
     const key = providerKeyDraft.trim();
 
     if (!key) {
@@ -295,7 +388,9 @@ async function readSelectedProjectFile() {
     }
 
     if (!window.laxmanAI?.saveProviderKey) {
-      setSettingsError('Secure key storage is unavailable. Restart the app.');
+      setSettingsError(
+        'Secure key storage is available only in the desktop app.'
+      );
       return;
     }
 
@@ -304,12 +399,15 @@ async function readSelectedProjectFile() {
     setSettingsMessage('');
 
     try {
-      const updated = await window.laxmanAI.saveProviderKey(provider, key);
+      const updated =
+        await window.laxmanAI.saveProviderKey(provider, key);
 
       setProviderStatus(updated);
       setProviderKeyDraft('');
       setShowKey(false);
-      setSettingsMessage(`${PROVIDERS[provider].label} API key saved securely.`);
+      setSettingsMessage(
+        `${PROVIDERS[provider].label} API key saved securely.`
+      );
     } catch (err) {
       setSettingsError(err?.message || 'Could not save the API key.');
     } finally {
@@ -319,7 +417,16 @@ async function readSelectedProjectFile() {
 
   async function deleteKey() {
     if (!providerStatus[provider]) {
-      setSettingsError('No saved API key exists for this provider.');
+      setSettingsError(
+        'No saved API key exists for this provider.'
+      );
+      return;
+    }
+
+    if (!window.laxmanAI?.deleteProviderKey) {
+      setSettingsError(
+        'Key management is available only in the desktop app.'
+      );
       return;
     }
 
@@ -334,11 +441,14 @@ async function readSelectedProjectFile() {
     setSettingsMessage('');
 
     try {
-      const updated = await window.laxmanAI.deleteProviderKey(provider);
+      const updated =
+        await window.laxmanAI.deleteProviderKey(provider);
 
       setProviderStatus(updated);
       setProviderKeyDraft('');
-      setSettingsMessage(`${PROVIDERS[provider].label} API key removed.`);
+      setSettingsMessage(
+        `${PROVIDERS[provider].label} API key removed.`
+      );
     } catch (err) {
       setSettingsError(err?.message || 'Could not delete the API key.');
     } finally {
@@ -351,11 +461,13 @@ async function readSelectedProjectFile() {
     setSettingsMessage('');
     setShowSettings(true);
     refreshProviderStatus();
+    closeSidebarOnMobile();
   }
 
   function openHistory(item) {
     setMessages(item.messages);
     setError('');
+    closeSidebarOnMobile();
   }
 
   function copyText(text) {
@@ -368,16 +480,25 @@ async function readSelectedProjectFile() {
         <div className="mode-glow" />
 
         <div className="mode-brand">
-          <div className="brand-mark"><Code2 size={25} /></div>
-          <span>LAXMAN <b>CODING AI</b></span>
+          <div className="brand-mark">
+            <Code2 size={25} />
+          </div>
+          <span>
+            LAXMAN <b>CODING AI</b>
+          </span>
         </div>
 
         <div className="mode-content">
           <div className="eyebrow">
-            <Sparkles size={14} /> YOUR PERSONAL ENGINEERING PARTNER
+            <Sparkles size={14} />
+            YOUR PERSONAL ENGINEERING PARTNER
           </div>
 
-          <h1>Build. Debug.<br /><span>Learn. Ship.</span></h1>
+          <h1>
+            Build. Debug.
+            <br />
+            <span>Learn. Ship.</span>
+          </h1>
 
           <p className="mode-lede">
             Choose how you want to work. You can change modes later.
@@ -388,12 +509,22 @@ async function readSelectedProjectFile() {
               className="mode-card offline-card"
               onClick={() => setMode('offline')}
             >
-              <div className="mode-card-icon green"><WifiOff size={22} /></div>
+              <div className="mode-card-icon green">
+                <WifiOff size={22} />
+              </div>
+
               <div className="mode-card-copy">
                 <strong>Offline Mode</strong>
-                <span>Runs on your computer. No internet needed after setup.</span>
-                <small><i className="status-dot" /> LOCAL MODEL Â· OLLAMA</small>
+                <span>
+                  Runs locally with Ollama on desktop or a downloaded
+                  browser model on the website.
+                </span>
+                <small>
+                  <i className="status-dot" />
+                  LOCAL MODEL · OLLAMA / WEBLLM
+                </small>
               </div>
+
               <ArrowUp className="mode-arrow" size={18} />
             </button>
 
@@ -401,25 +532,34 @@ async function readSelectedProjectFile() {
               className="mode-card online-card"
               onClick={() => setMode('online')}
             >
-              <div className="mode-card-icon blue"><Globe2 size={22} /></div>
+              <div className="mode-card-icon blue">
+                <Globe2 size={22} />
+              </div>
+
               <div className="mode-card-copy">
                 <strong>Online Mode</strong>
-                <span>Use OpenAI, Gemini, or Claude cloud models.</span>
-                <small><Zap size={12} /> CLOUD PROVIDER REQUIRED</small>
+                <span>
+                  Use OpenAI, Gemini, or Claude cloud models.
+                </span>
+                <small>
+                  <Zap size={12} />
+                  CLOUD PROVIDER REQUIRED
+                </small>
               </div>
+
               <ArrowUp className="mode-arrow" size={18} />
             </button>
           </div>
 
           <div className="privacy-note">
             <ShieldCheck size={15} />
-            Offline prompts stay on your computer. Online prompts are sent to
-            the selected cloud provider.
+            Offline prompts stay on your computer. Online prompts are
+            sent to the selected cloud provider.
           </div>
         </div>
 
         <div className="mode-footer">
-          PERSONAL AI WORKSPACE <span>â€¢</span> WINDOWS DESKTOP
+          PERSONAL AI WORKSPACE <span>•</span> LOCAL AI
         </div>
       </div>
     );
@@ -430,11 +570,15 @@ async function readSelectedProjectFile() {
       {sidebarOpen && (
         <aside className="sidebar">
           <div className="sidebar-top">
-            <div className="brand-mark small"><Code2 size={19} /></div>
+            <div className="brand-mark small">
+              <Code2 size={19} />
+            </div>
+
             <div className="brand-name">
               Laxman <b>Coding AI</b>
               <small>LOCAL ENGINEERING WORKSPACE</small>
             </div>
+
             <button
               className="icon-button close-sidebar"
               aria-label="Close sidebar"
@@ -445,26 +589,38 @@ async function readSelectedProjectFile() {
           </div>
 
           <button className="new-chat" onClick={newChat}>
-            <Plus size={17} /> New chat <span>Ctrl K</span>
+            <Plus size={17} />
+            New chat <span>Ctrl K</span>
           </button>
 
           <div className="sidebar-nav">
-            <button className="nav-item active">
-              <MessageSquare size={16} /> Chat
+            <button
+              className="nav-item active"
+              onClick={closeSidebarOnMobile}
+            >
+              <MessageSquare size={16} />
+              Chat
             </button>
+
             <button className="nav-item" onClick={openSettings}>
-              <FolderKanban size={16} /> Projects <span className="soon">SOON</span>
+              <FolderKanban size={16} />
+              Projects <span className="soon">SOON</span>
             </button>
+
             <button className="nav-item" onClick={openSettings}>
-              <Code2 size={16} /> Code assistant
+              <Code2 size={16} />
+              Code assistant
             </button>
+
             <button className="nav-item" onClick={openSettings}>
-              <History size={16} /> Learning workspace
+              <History size={16} />
+              Learning workspace
             </button>
           </div>
 
           <div className="history-heading">
-            <span>RECENT CONVERSATIONS</span><Search size={14} />
+            <span>RECENT CONVERSATIONS</span>
+            <Search size={14} />
           </div>
 
           <div className="history-search">
@@ -498,29 +654,54 @@ async function readSelectedProjectFile() {
 
           <div className="sidebar-bottom">
             <div className="local-status">
-              <span className={status.connected ? 'status-dot' : 'status-dot offline'} />
+              <span
+                className={
+                  status.connected
+                    ? 'status-dot'
+                    : 'status-dot offline'
+                }
+              />
+
               <div>
                 <strong>
-                  {status.connected ? 'Local AI connected' : 'Local AI not detected'}
+                  {status.connected
+                    ? 'Local AI connected'
+                    : 'Local AI not detected'}
                 </strong>
+
                 <small>
                   {status.connected
-                    ? (status.models.includes(model)
-                        ? model
-                        : `${status.models.length} model(s) available`)
-                    : 'Check that Ollama is running'}
+                    ? status.models.includes(model)
+                      ? model
+                      : `${status.models.length} model(s) available`
+                    : isBrowser()
+                      ? 'Browser AI runs separately'
+                      : 'Check that Ollama is running'}
                 </small>
               </div>
+
               <Activity size={15} />
             </div>
 
             <button className="profile-button" onClick={openSettings}>
               <div className="avatar">L</div>
-              <div><strong>Laxman</strong><small>Personal workspace</small></div>
+              <div>
+                <strong>Laxman</strong>
+                <small>Personal workspace</small>
+              </div>
               <Settings2 size={17} />
             </button>
           </div>
         </aside>
+      )}
+
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-overlay"
+          aria-label="Close navigation menu"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
       <main className="main-panel">
@@ -528,9 +709,10 @@ async function readSelectedProjectFile() {
           <div className="topbar-left">
             {!sidebarOpen && (
               <button
-                className="icon-button"
+                className="icon-button hamburger-button"
                 onClick={() => setSidebarOpen(true)}
                 aria-label="Open sidebar"
+                aria-expanded={sidebarOpen}
               >
                 <Menu size={18} />
               </button>
@@ -546,7 +728,13 @@ async function readSelectedProjectFile() {
 
           <div className="topbar-right">
             <button className="mode-pill" onClick={() => setMode(null)}>
-              <span className={mode === 'offline' ? 'status-dot' : 'status-dot blue-dot'} />
+              <span
+                className={
+                  mode === 'offline'
+                    ? 'status-dot'
+                    : 'status-dot blue-dot'
+                }
+              />
               {mode === 'offline' ? 'Offline Mode' : 'Online Mode'}
               <ChevronDown size={14} />
             </button>
@@ -561,91 +749,61 @@ async function readSelectedProjectFile() {
           </div>
         </header>
 
-<section
-  style={{
-    padding: '16px 24px',
-    borderBottom: '1px solid rgba(148, 163, 184, 0.18)',
-  }}
->
-  <div
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '12px',
-      flexWrap: 'wrap',
-    }}
-  >
-    <button
-      className="new-chat"
-      onClick={chooseProjectFolder}
-      disabled={projectLoading}
-    >
-      <FolderKanban size={16} />
-      Select project folder
-    </button>
+        <section className="project-toolbar">
+          <div className="project-toolbar-row">
+            <button
+              className="new-chat"
+              onClick={chooseProjectFolder}
+              disabled={projectLoading}
+            >
+              <FolderKanban size={16} />
+              Select project folder
+            </button>
 
-    {selectedProject && (
-      <span style={{ fontSize: '13px', overflowWrap: 'anywhere' }}>
-        Project: <strong>{selectedProject.name}</strong>
-      </span>
-    )}
-  </div>
+            {selectedProject && (
+              <span className="selected-project-label">
+                Project: <strong>{selectedProject.name}</strong>
+              </span>
+            )}
+          </div>
 
-  {selectedProject && (
-    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-      <input
-        value={projectFilePath}
-        onChange={(e) => setProjectFilePath(e.target.value)}
-        placeholder="Relative path, e.g. src/App.jsx"
-        aria-label="Project file path"
-        style={{
-          flex: 1,
-          minWidth: 0,
-          padding: '10px 12px',
-          borderRadius: '8px',
-        }}
-      />
+          {selectedProject && (
+            <div className="project-file-row">
+              <input
+                value={projectFilePath}
+                onChange={(e) => setProjectFilePath(e.target.value)}
+                placeholder="Relative path, e.g. src/App.jsx"
+                aria-label="Project file path"
+              />
 
-      <button
-        className="new-chat"
-        onClick={readSelectedProjectFile}
-        disabled={projectLoading}
-      >
-        {projectLoading ? 'Reading...' : 'Read file'}
-      </button>
-    </div>
-  )}
+              <button
+                className="new-chat"
+                onClick={readSelectedProjectFile}
+                disabled={projectLoading}
+              >
+                {projectLoading ? 'Reading...' : 'Read file'}
+              </button>
+            </div>
+          )}
 
-  {projectError && (
-    <p role="alert" style={{ color: '#f87171', fontSize: '13px' }}>
-      {projectError}
-    </p>
-  )}
+          {projectError && (
+            <p className="project-error" role="alert">
+              {projectError}
+            </p>
+          )}
 
-  {projectFileContent && (
-    <div style={{ marginTop: '12px' }}>
-      <strong>File preview: {projectFilePath}</strong>
-      <pre
-        style={{
-          maxHeight: '260px',
-          overflow: 'auto',
-          padding: '12px',
-          borderRadius: '8px',
-          whiteSpace: 'pre-wrap',
-          overflowWrap: 'anywhere',
-          fontSize: '12px',
-        }}
-      >
-        {projectFileContent}
-      </pre>
-    </div>
-  )}
-</section>
-
+          {projectFileContent && (
+            <div className="project-file-preview">
+              <strong>File preview: {projectFilePath}</strong>
+              <pre>{projectFileContent}</pre>
+            </div>
+          )}
+        </section>
 
         {mode === 'online' && (
           <div className="online-provider-bar">
             <label htmlFor="online-provider">Cloud provider</label>
+
             <select
               id="online-provider"
               value={provider}
@@ -655,33 +813,53 @@ async function readSelectedProjectFile() {
               }}
             >
               {Object.entries(PROVIDERS).map(([key, item]) => (
-                <option key={key} value={key}>{item.label}</option>
+                <option key={key} value={key}>
+                  {item.label}
+                </option>
               ))}
             </select>
 
-            <span className={`connection-badge ${providerStatus[provider] ? 'ok' : ''}`}>
-              {providerStatus[provider] ? 'Key configured' : 'Setup required'}
+            <span
+              className={`connection-badge ${
+                providerStatus[provider] ? 'ok' : ''
+              }`}
+            >
+              {providerStatus[provider]
+                ? 'Key configured'
+                : 'Setup required'}
             </span>
 
             <button className="icon-button" onClick={openSettings}>
-              <Settings2 size={16} /> Configure
+              <Settings2 size={16} />
+              Configure
             </button>
           </div>
         )}
-
-        <section className={`conversation ${messages.length ? 'has-messages' : ''}`}>
+                <section
+          className={`conversation ${
+            messages.length ? 'has-messages' : ''
+          }`}
+        >
           {messages.length === 0 ? (
             <div className="welcome">
               <div className="welcome-symbol">
-                <Code2 size={26} /><span />
+                <Code2 size={26} />
+                <span />
               </div>
 
               <div className="welcome-label">
                 <span className="status-dot" />
-                {mode === 'offline' ? 'READY TO BUILD LOCALLY' : 'ONLINE AI WORKSPACE'}
+                {mode === 'offline'
+                  ? 'READY TO BUILD LOCALLY'
+                  : 'ONLINE AI WORKSPACE'}
               </div>
 
-              <h2>Your engineering<br /><span>co-pilot.</span></h2>
+              <h2>
+                Your engineering
+                <br />
+                <span>co-pilot.</span>
+              </h2>
+
               <p>What are we building or solving today?</p>
 
               <div className="starter-grid">
@@ -691,7 +869,10 @@ async function readSelectedProjectFile() {
                     key={title}
                     onClick={() => sendMessage(text)}
                   >
-                    <div><Icon size={17} /><ArrowDown size={14} /></div>
+                    <div>
+                      <Icon size={17} />
+                      <ArrowDown size={14} />
+                    </div>
                     <strong>{title}</strong>
                     <span>{text}</span>
                   </button>
@@ -699,33 +880,69 @@ async function readSelectedProjectFile() {
               </div>
 
               <div className="local-model-line">
-                {mode === 'offline' ? <Laptop size={15} /> : <Globe2 size={15} />}
-                <span>{mode === 'offline' ? 'Running locally with' : 'Using cloud provider'}</span>
-                <strong>{mode === 'offline' ? model : PROVIDERS[provider].label}</strong>
-                {mode === 'offline' && (
-  <span className="model-chip">
-    {model.includes(':3b') ? '3B' : model.includes(':1.5b') ? '1.5B' : 'Local Model'}
-  </span>
-)}
+                {mode === 'offline' ? (
+                  <Laptop size={15} />
+                ) : (
+                  <Globe2 size={15} />
+                )}
+
+                <span>
+                  {mode === 'offline'
+                    ? isBrowser()
+                      ? 'Browser model'
+                      : 'Running locally with'
+                    : 'Using cloud provider'}
+                </span>
+
+                <strong>
+                  {mode === 'offline'
+                    ? isBrowser()
+                      ? 'WebLLM'
+                      : model
+                    : PROVIDERS[provider].label}
+                </strong>
+
+                {mode === 'offline' && !isBrowser() && (
+                  <span className="model-chip">
+                    {model.includes(':3b')
+                      ? '3B'
+                      : model.includes(':1.5b')
+                        ? '1.5B'
+                        : 'Local Model'}
+                  </span>
+                )}
               </div>
             </div>
           ) : (
             <div className="message-list">
               {messages.map((message) => (
-                <article className={`message ${message.role}`} key={message.id}>
+                <article
+                  className={`message ${message.role}`}
+                  key={message.id}
+                >
                   <div className="message-avatar">
-                    {message.role === 'assistant' ? <Code2 size={16} /> : 'L'}
+                    {message.role === 'assistant' ? (
+                      <Code2 size={16} />
+                    ) : (
+                      'L'
+                    )}
                   </div>
 
                   <div className="message-body">
                     <div className="message-author">
-                      {message.role === 'assistant' ? 'Laxman Coding AI' : 'You'}
+                      {message.role === 'assistant'
+                        ? 'Laxman Coding AI'
+                        : 'You'}
+
                       {message.role === 'assistant' && (
                         <span>
-                          {' Â· '}
+                          {' · '}
                           {message.provider === 'ollama'
-                            ? 'LOCAL MODEL'
-                            : PROVIDERS[message.provider]?.label || 'CLOUD MODEL'}
+                            ? 'LOCAL OLLAMA MODEL'
+                            : message.provider === 'webllm'
+                              ? 'BROWSER MODEL'
+                              : PROVIDERS[message.provider]?.label ||
+                                'CLOUD MODEL'}
                         </span>
                       )}
                     </div>
@@ -737,7 +954,9 @@ async function readSelectedProjectFile() {
                         </ReactMarkdown>
                       </div>
                     ) : (
-                      <p className="user-message-text">{message.content}</p>
+                      <p className="user-message-text">
+                        {message.content}
+                      </p>
                     )}
 
                     {message.role === 'assistant' && (
@@ -745,24 +964,39 @@ async function readSelectedProjectFile() {
                         className="copy-answer"
                         onClick={() => copyText(message.content)}
                       >
-                        <Check size={13} /> Copy response
+                        <Check size={13} />
+                        Copy response
                       </button>
                     )}
                   </div>
                 </article>
               ))}
 
-              {loading && (
+              {loading && !streaming && (
                 <article className="message assistant">
-                  <div className="message-avatar"><Code2 size={16} /></div>
+                  <div className="message-avatar">
+                    <Code2 size={16} />
+                  </div>
+
                   <div className="message-body">
                     <div className="message-author">
                       Laxman Coding AI
                       <span>
-                        {mode === 'offline' ? ' Â· THINKING LOCALLY' : ` Â· CONTACTING ${PROVIDERS[provider].label.toUpperCase()}`}
+                        {mode === 'offline'
+                          ? isBrowser()
+                            ? ' · LOADING / RUNNING BROWSER AI'
+                            : ' · THINKING LOCALLY'
+                          : ` · CONTACTING ${PROVIDERS[
+                              provider
+                            ].label.toUpperCase()}`}
                       </span>
                     </div>
-                    <div className="typing"><i /><i /><i /></div>
+
+                    <div className="typing">
+                      <i />
+                      <i />
+                      <i />
+                    </div>
                   </div>
                 </article>
               )}
@@ -774,7 +1008,10 @@ async function readSelectedProjectFile() {
 
         <div className="composer-wrap">
           <div className="composer-hint">
-            <span><Command size={12} /> Enter to send</span>
+            <span>
+              <Command size={12} />
+              Enter to send
+            </span>
             <span>Shift + Enter for new line</span>
           </div>
 
@@ -797,8 +1034,8 @@ async function readSelectedProjectFile() {
               }}
               placeholder={
                 mode === 'offline'
-                  ? 'Ask anything about code, architecture, or debuggingâ€¦'
-                  : `Ask ${PROVIDERS[provider].label} about code, architecture, or debuggingâ€¦`
+                  ? 'Ask anything about code, architecture, or debugging…'
+                  : `Ask ${PROVIDERS[provider].label} about code, architecture, or debugging…`
               }
               rows={2}
             />
@@ -807,9 +1044,14 @@ async function readSelectedProjectFile() {
               <div className="composer-tools">
                 <span className="model-select">
                   <Bot size={14} />
-                  {mode === 'offline' ? model : PROVIDERS[provider].label}
+                  {mode === 'offline'
+                    ? isBrowser()
+                      ? 'WebLLM'
+                      : model
+                    : PROVIDERS[provider].label}
                   <ChevronDown size={13} />
                 </span>
+
                 <span className="secure-label">
                   <ShieldCheck size={13} />
                   {mode === 'offline' ? 'Local' : 'Cloud'}
@@ -822,20 +1064,28 @@ async function readSelectedProjectFile() {
                 disabled={!draft.trim() || loading}
                 aria-label="Send message"
               >
-                {loading ? <Square size={15} /> : <ArrowUp size={18} />}
+                {loading ? (
+                  <Square size={15} />
+                ) : (
+                  <ArrowUp size={18} />
+                )}
               </button>
             </div>
           </form>
 
           <div className="composer-disclaimer">
             AI can make mistakes. Verify important code and security decisions.
-            {mode === 'online' && ' Online prompts are sent to your selected provider.'}
+            {mode === 'online' &&
+              ' Online prompts are sent to your selected provider.'}
           </div>
 
           {error && (
             <div className="error-banner">
               <span>{error}</span>
-              <button onClick={() => setError('')} aria-label="Dismiss error">
+              <button
+                onClick={() => setError('')}
+                aria-label="Dismiss error"
+              >
                 <X size={14} />
               </button>
             </div>
@@ -844,7 +1094,10 @@ async function readSelectedProjectFile() {
       </main>
 
       {showSettings && (
-        <div className="modal-backdrop" onClick={() => setShowSettings(false)}>
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowSettings(false)}
+        >
           <section
             className="settings-modal"
             onClick={(e) => e.stopPropagation()}
@@ -854,6 +1107,7 @@ async function readSelectedProjectFile() {
                 <span className="eyebrow">PREFERENCES</span>
                 <h3>Workspace settings</h3>
               </div>
+
               <button
                 className="icon-button"
                 onClick={() => setShowSettings(false)}
@@ -867,36 +1121,55 @@ async function readSelectedProjectFile() {
               <div>
                 <strong>Connection</strong>
                 <p>
-                  {status.connected
-                    ? 'Ollama is reachable on this computer.'
-                    : 'Ollama is not currently reachable.'}
+                  {isBrowser()
+                    ? 'Browser AI runs directly in your browser.'
+                    : status.connected
+                      ? 'Ollama is reachable on this computer.'
+                      : 'Ollama is not currently reachable.'}
                 </p>
               </div>
-              <span className={`connection-badge ${status.connected ? 'ok' : ''}`}>
-                {status.connected ? 'Connected' : 'Offline'}
+
+              <span
+                className={`connection-badge ${
+                  status.connected ? 'ok' : ''
+                }`}
+              >
+                {isBrowser()
+                  ? 'Browser AI'
+                  : status.connected
+                    ? 'Connected'
+                    : 'Offline'}
               </span>
             </div>
 
-            <div className="setting-row">
-              <div>
-                <strong>Local model</strong>
-                <p>Model tag used for Offline Mode.</p>
+            {!isBrowser() && (
+              <div className="setting-row">
+                <div>
+                  <strong>Local model</strong>
+                  <p>Model tag used for Offline Mode.</p>
+                </div>
+
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                >
+                  {[...new Set([MODEL, ...status.models])].map(
+                    (name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    )
+                  )}
+                </select>
               </div>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                {[...new Set([MODEL, ...status.models])].map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-            </div>
+            )}
 
             <div className="provider-settings">
               <h4>Online AI providers</h4>
+
               <p className="settings-description">
-                Keys are saved using Electron secure storage. The UI never
-                receives a previously stored key.
+                API key management is available in the Electron desktop
+                app. Do not enter private API keys into the public website.
               </p>
 
               <label htmlFor="provider-select">Provider</label>
@@ -912,74 +1185,111 @@ async function readSelectedProjectFile() {
                 }}
               >
                 {Object.entries(PROVIDERS).map(([key, item]) => (
-                  <option key={key} value={key}>{item.label}</option>
+                  <option key={key} value={key}>
+                    {item.label}
+                  </option>
                 ))}
               </select>
 
-              <p className="provider-help">{PROVIDERS[provider].help}</p>
+              {!isBrowser() && (
+                <>
+                  <p className="provider-help">
+                    {PROVIDERS[provider].help}
+                  </p>
 
-              <label htmlFor="provider-key">API key</label>
-              <div className="api-key-input">
-                <input
-                  id="provider-key"
-                  type={showKey ? 'text' : 'password'}
-                  value={providerKeyDraft}
-                  onChange={(e) => setProviderKeyDraft(e.target.value)}
-                  placeholder={PROVIDERS[provider].placeholder}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={showKey ? 'Hide API key' : 'Show API key'}
-                  onClick={() => setShowKey((value) => !value)}
-                >
-                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+                  <label htmlFor="provider-key">API key</label>
 
-              <div className="provider-key-status">
-                <span className={`status-dot ${providerStatus[provider] ? '' : 'offline'}`} />
-                {providerStatus[provider]
-                  ? 'A key is saved for this provider.'
-                  : 'No key is saved for this provider.'}
-              </div>
+                  <div className="api-key-input">
+                    <input
+                      id="provider-key"
+                      type={showKey ? 'text' : 'password'}
+                      value={providerKeyDraft}
+                      onChange={(e) =>
+                        setProviderKeyDraft(e.target.value)
+                      }
+                      placeholder={PROVIDERS[provider].placeholder}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
 
-              <div className="provider-actions">
-                <button
-                  className="modal-done"
-                  onClick={saveKey}
-                  disabled={savingKey || deletingKey || !providerKeyDraft.trim()}
-                >
-                  <Save size={15} />
-                  {savingKey ? 'Savingâ€¦' : 'Save API key'}
-                </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={
+                        showKey ? 'Hide API key' : 'Show API key'
+                      }
+                      onClick={() =>
+                        setShowKey((value) => !value)
+                      }
+                    >
+                      {showKey ? (
+                        <EyeOff size={16} />
+                      ) : (
+                        <Eye size={16} />
+                      )}
+                    </button>
+                  </div>
 
-                <button
-                  className="delete-key-button"
-                  onClick={deleteKey}
-                  disabled={savingKey || deletingKey || !providerStatus[provider]}
-                >
-                  <Trash2 size={15} />
-                  {deletingKey ? 'Removingâ€¦' : 'Remove key'}
-                </button>
-              </div>
+                  <div className="provider-key-status">
+                    <span
+                      className={`status-dot ${
+                        providerStatus[provider] ? '' : 'offline'
+                      }`}
+                    />
+                    {providerStatus[provider]
+                      ? 'A key is saved for this provider.'
+                      : 'No key is saved for this provider.'}
+                  </div>
 
-              {settingsMessage && (
-                <p className="settings-success">{settingsMessage}</p>
-              )}
+                  <div className="provider-actions">
+                    <button
+                      className="modal-done"
+                      onClick={saveKey}
+                      disabled={
+                        savingKey ||
+                        deletingKey ||
+                        !providerKeyDraft.trim()
+                      }
+                    >
+                      <Save size={15} />
+                      {savingKey ? 'Saving…' : 'Save API key'}
+                    </button>
 
-              {settingsError && (
-                <p className="settings-error">{settingsError}</p>
+                    <button
+                      className="delete-key-button"
+                      onClick={deleteKey}
+                      disabled={
+                        savingKey ||
+                        deletingKey ||
+                        !providerStatus[provider]
+                      }
+                    >
+                      <Trash2 size={15} />
+                      {deletingKey ? 'Removing…' : 'Remove key'}
+                    </button>
+                  </div>
+
+                  {settingsMessage && (
+                    <p className="settings-success">
+                      {settingsMessage}
+                    </p>
+                  )}
+
+                  {settingsError && (
+                    <p className="settings-error">
+                      {settingsError}
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
             <div className="setting-note">
               <ShieldCheck size={17} />
               <span>
-                Offline chat uses local Ollama. Online chat sends your prompts
-                to the selected cloud provider and may incur usage charges.
+                Offline chat runs with Ollama in the desktop app or
+                WebLLM in a supported browser. Online chat sends prompts
+                to the selected cloud provider.
               </span>
             </div>
 
@@ -994,6 +1304,10 @@ async function readSelectedProjectFile() {
       )}
     </div>
   );
+}
+
+function isBrowser() {
+  return typeof window !== 'undefined' && !window.laxmanAI;
 }
 
 export default App;
